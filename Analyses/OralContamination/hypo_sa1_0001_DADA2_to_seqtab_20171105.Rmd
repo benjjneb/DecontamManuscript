@@ -1,0 +1,217 @@
+---
+title: "DADA2 Hypo1"
+author: "Nicole Davis"
+date: "Monday, January 25, 2016"
+last modified: "Sunday, July 31, 2016"
+output: html_document
+---
+
+use dada2 to analyze Hypo1a and Hypo1b results (mucosal samples, 2 MiSeq runs from Alvaro, 3/9/15)
+```{r,warning=FALSE, echo=FALSE}
+library(dada2)
+library(ShortRead)
+library(ggplot2)
+library(ape)
+memory.limit(20000)
+
+#this assumes you've already downloaded the sample-specific .fastq files to your working directory
+setwd("/Users/Nicole/Desktop/nmd_working_Desktop/Data analysis/Hypo_SA1_0001/")
+path <- "/Users/Nicole/Desktop/nmd_working_Desktop/Data analysis/Hypo_SA1_0001/"
+fns <- list.files(path)
+fns
+```
+
+FILTERING AND TRIMMING
+read in file names
+```{r}
+fastqs <- fns[grepl(".fastq", fns)]
+fastqs <- sort(fastqs) #Sort to keep files paired in order
+fnFs <- fastqs[grepl("R1", fastqs)] #forward file
+fnRs <- fastqs[grepl("_R3", fastqs)] #reverse file
+```
+
+examine quality profiles of forward and reverse reads
+```{r}
+for(fnF in fnFs[1:10]) {
+  qqF <- qa(paste0(path,fnF))[["perCycle"]]$quality
+  print(ShortRead:::.plotCycleQuality(qqF, main="Forward"))
+}
+```
+
+examine the quality profile of the reverse reads
+```{r}
+for(fnR in fnRs[1:10]) {
+  qqR <- qa(paste0(path,fnR))[["perCycle"]]$quality
+  print(ShortRead:::.plotCycleQuality(qqR, main="Reverse"))
+}
+```
+
+filter the forward and reverse reads, truncate where quality drops off
+```{r}
+filtFs <- paste0(path, sapply(strsplit(fnFs, "\\."), `[`, 1), "_filt.fastq.gz")
+filtRs <- paste0(path, sapply(strsplit(fnRs, "\\."), `[`, 1), "_filt.fastq.gz")
+for(i in seq_along(fnFs)) {
+  fastqPairedFilter(paste0(path, c(fnFs[i], fnRs[i])), c(filtFs[i], filtRs[i]), maxN=0, maxEE=2, truncQ=2, trimLeft=c(10, 10), truncLen=c(200,100), compress=TRUE, verbose=TRUE)
+}
+```
+
+DEREPLICATION
+```{r}
+derepFs <- lapply(filtFs, derepFastq, verbose=TRUE)
+derepRs <- lapply(filtRs, derepFastq, verbose=TRUE)
+
+# Name the derep-class objects by the sample names
+sam_names <- sapply(strsplit(fnFs, "/"), tail, n=1)
+sam_names <- sapply(strsplit(sam_names, "_"), `[`, 1)
+names(derepFs) <- sam_names
+names(derepRs) <- sam_names
+```
+
+inspect derep-class object
+```{r}
+derepFs[[1]]
+```
+
+derep-class: R object describing dereplicated sequencing reads
+$uniques: 24500 reads in 5308 unique sequences
+  Sequence lengths: min=190, median=190, max=190
+$quals: Quality matrix dimension:  5308 190
+  Consensus quality scores: min=8, median=37.75, max=38
+$map: Map from reads to unique sequences:  2 89 27 784 1 ...
+
+
+SAMPLE INFERENCE
+
+perform joint sample inference and error rate estimation (takes a few minutes)
+```{r}
+dadaFs <- dada(derepFs, err=inflateErr(tperr1,3), errorEstimationFunction=loessErrfun, selfConsist = TRUE)
+dadaRs <- dada(derepRs, err=inflateErr(tperr1,3), errorEstimationFunction=loessErrfun, selfConsist = TRUE)
+```
+
+inspect the dada-class object returned by dada
+```{r}
+dadaFs[[1]]
+```
+
+visualize estimated error rates
+```{r}
+plotErrors(dadaFs[[1]], "A", nominalQ = TRUE)
+plotErrors(dadaFs[[1]], "T", nominalQ = TRUE)
+plotErrors(dadaFs[[1]], "G", nominalQ = TRUE)
+plotErrors(dadaFs[[1]], "C", nominalQ = TRUE)
+```
+
+IDENTIFY CHIMERAS
+```{r}
+bimFs <- sapply(dadaFs, isBimeraDenovo, verbose=TRUE)
+bimRs <- sapply(dadaRs, isBimeraDenovo, verbose=TRUE)
+print(unname(sapply(bimFs, mean)), digits=2)
+print(unname(sapply(bimRs, mean)), digits=2)
+```
+
+MERGE PAIRED READS
+```{r}
+mergers <- mapply(mergePairs, dadaFs, derepFs, dadaRs, derepRs, SIMPLIFY=FALSE)
+head(mergers[[1]])
+```
+
+remove chimeras
+```{r}
+mergers.nochim <- mapply(function(mm, bF, bR) mm[!bF[mm$forward] & !bR[mm$reverse],], mergers, bimFs, bimRs, SIMPLIFY=FALSE)
+```
+
+```{r}
+head(getUniques(mergers.nochim[["1101H01701R00"]]), n=2)
+```
+
+```{r}
+head(mergers.nochim[["1101H01701R00"]][,c("sequence", "abundance")], n=2)
+```
+
+CONSTRUCT THE SEQUENCE TABLE
+```{r}
+seqtab <- makeSequenceTable(mergers.nochim)
+
+table(nchar(colnames(seqtab)))
+length(unique(substr(colnames(seqtab), 1, 230)))
+dim(seqtab)
+```
+
+Hypo1a:
+> table(nchar(colnames(seqtab)))
+
+ 190  201  202  203  208  209  229  231  232  233  234  235 
+   9    7    1    1    1    1    1    3  199 1026   48    5 
+> length(unique(substr(colnames(seqtab), 1, 230)))
+[1] 1300
+> dim(seqtab)
+[1]  767 1302
+
+Hypo1:
+> table(nchar(colnames(seqtab)))
+
+ 190  200  201  202  203  205  207  208  209  216  229  231  232  233  234  235  252  253 
+  31    1   11    1   19    2    3    1    1    1    2    9  410 1825   88   13    1    1 
+> length(unique(substr(colnames(seqtab), 1, 230)))
+[1] 2407
+> dim(seqtab)
+[1]  767 2420
+
+ASSIGN TAXONOMY
+```{r}
+system.time(taxaSILVA_trainset <- assignTaxonomy(seqtab, "/Users/nicole/Desktop/silva_nr_v123_train_set.fa"))
+#    user  system elapsed 
+# 453.262   1.102 454.295 
+
+colnames(taxaSILVA_trainset) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")
+#fix NAs
+taxaSILVA_trainset[is.na(taxaSILVA_trainset) == TRUE] <- "unknown"
+unname(head(taxaSILVA_trainset))
+```
+
+#load data into a phyloseq object
+```{r}
+library(phyloseq); packageVersion("phyloseq")
+library(stringr)
+# Make "otu_table"
+seqs <- colnames(seqtab)
+otab <- otu_table(seqtab, taxa_are_rows=FALSE)
+colnames(otab) <- paste0("Seq", seq(ncol(otab)))
+# Make "tax_table"
+taxtab <- tax_table(taxa)
+taxtabSILVA <- tax_table(taxaSILVA_trainset)
+rownames(taxtab) <- colnames(otab)
+#Load mapping file
+map <- read.csv('/Users/nicole/Dropbox/DNA Contamination/Hypo_SA1_0001/hypo_sa1_0001_mappingfile.csv')
+map$Sample_or_Control <- 'True Sample'
+map$Sample_or_Control[map$Habitat == 'EC'] <- 'Control Sample'
+samdat <- map
+```
+
+```{r}
+# Construct phyloseq object
+ps <- phyloseq(otab, samdat, taxtab)
+```
+
+#Retain only some samples for analysis
+There may be differences between DNA extracted in PowerSoil plates vs. tubes. For these analyses, subset to just include plate-extracted samples. Also remove any PCR barcode replicates ("R04" samples), and one sample that was pooled twice, and so is an outlier in read counts.
+```{r}
+#remove outlier sample
+MUC <- subset_samples(ps, X.SampleID != "P1104C08703R00")
+
+#keep only samples that were extracted in 96-well plates
+MUC <- subset_samples(MUC, Extraction.Protocol == "plate")
+
+#the 'Replicate' column indicates whether the sample is a 'normal' sample (R00) or whether the sample is a type of derivative sample, e.g. 'R04' indicates the sample's DNA was PCR amplified a second time with a different primer barcode
+MUC <- subset_samples(MUC, Replicate == "R00")
+
+#remove singleton taxa after subsetting
+MUC <- prune_taxa(taxa_sums(MUC) > 1, MUC)
+MUC <- prune_samples(sample_sums(MUC) > 0, MUC)
+
+#compare unfiltered data to plate-extracted, non-barcode replicate samples that lack singletons.
+ps
+MUC
+
+save(MUC, file='MUC_ps.Rdata')
+```

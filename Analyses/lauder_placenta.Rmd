@@ -1,0 +1,170 @@
+---
+title: "Lauder Placenta Microbiome Analysis"
+author: "BJC"
+date: "11/16/2017"
+output: html_document
+---
+
+Comparison of placenta samples with contamination controls does not provide evidence for a distinct placenta microbiota, Lauder et al., 2016, https://doi.org/10.1186/s40168-016-0172-3.
+
+Load needed packages:
+```{r}
+library(decontam); packageVersion("decontam")
+library(ggplot2); packageVersion("ggplot2")
+library(phyloseq); packageVersion("phyloseq")
+library(gridExtra)
+```
+
+## Process 16S Amplicon Data
+
+This section analyzes the Lauder et al. placenta biopsy amplicon sequencing data: "The data set supporting the results of this article is available in the NCBI SRA repository, PRJNA309332 [https://www.ncbi.nlm.nih.gov/bioproject/PRJNA309332]."
+
+Once downloaded, the amplicon sequencing data was processed using the dada2 R package, producing a table of exact amplicon sequence variants (ASVs). Those processed data objects are included as part of this reproducible analysis in the `LauderPlacenta` directory. In addition, the DADA2 processing steps are included here as well for completeness, but commented out:
+
+```{r}
+#path.fastq <- "~/Lauder"
+#fns <- list.files(path.fastq, pattern="fastq.gz") # Just forward reads?
+## Filter and Trim
+#plotQualityProfile(file.path(path, fns[1:3]))
+#filts <- file.path(path, "filtered", fns)
+#out <- filterAndTrim(file.path(path, fns), filts, maxEE=2, truncLen=260, multithread=TRUE)
+#summary(out[,2]/out[,1]) # 98%+ passing
+## Read in sample data
+#df <- read.csv(file.path(path.fastq, "SraRunInfo.csv"), header=TRUE, stringsAsFactors = FALSE)
+#names(filts) <- sapply(strsplit(basename(filts), "_"), `[`, 1)
+#identical(df$Run, names(filts)) # TRUE
+## Process
+#drp <- derepFastq(filts, verbose=TRUE)
+#names(drp) <- df$Run
+#err <- learnErrors(drp, multithread=TRUE, nreads=1e6)
+## pool=TRUE to go after even the rarest ASVs
+#dd <- dada(drp, err=err, pool=TRUE, multithread=TRUE, VERBOSE=TRUE)
+#sta <- makeSequenceTable(dd)
+#dim(sta) # 69 7060
+#st <- removeBimeraDenovo(sta, method="consensus", multithread=TRUE)
+#dim(st); sum(st)/sum(sta) # 69 4644   0.9049186
+#st2 <- removeBimeraDenovo(sta, method="pooled", multithread=TRUE)
+#dim(st2); sum(st2)/sum(sta) # 69 3977   0.8212687
+#tax <- assignTaxonomy(st, "~/tax/silva_nr_v123_train_set.fa.gz", multithread=TRUE)
+#tax2 <- assignTaxonomy(st2, "~/tax/silva_nr_v123_train_set.fa.gz", multithread=TRUE)
+#save(df, sta, st, tax, st2, tax2, file=file.path(path, "processed_plac.rda"))
+```
+
+## Analayze Data
+
+Read in the ASV tables and taxonomies inferred by DADA2:
+```{r}
+path <- "~/Desktop/Contamination/Analyses/LauderPlacenta" # CHANGE ME
+load(file.path(path, "processed_plac.rda"))
+ft <- sweep(st, 1, rowSums(st), "/")
+```
+
+Read in the sample metadata:
+```{r}
+samdf <- read.csv(file.path(path, "Biosamples.csv"), header=TRUE, stringsAsFactors = FALSE)
+samdf <-samdf[match(df$BioSample, samdf$BioSample),]
+identical(samdf$BioSample, df$BioSample) # TRUE
+rownames(samdf) <- df$Run
+table(samdf$Prep, samdf$BodySite)
+neg.sites <- c("Air Swab", "Extraction", "Sterile Swab")
+plac.sites <- c("PlacentaFS", "PlacentaMS")
+samdf$neg <- samdf$BodySite %in% neg.sites
+samdf$plac <- samdf$BodySite %in% plac.sites
+samdf$Type <- samdf$BodySite
+samdf$Type[samdf$neg] <- "Negative"
+samdf$Type[samdf$plac] <- "Placenta"
+identical(rownames(samdf), rownames(st)) # TRUE
+samdf$Reads <- rowSums(st)
+```
+
+Note that Vaginal Swab samples were only collected for the PSP kit, and not the Mobio kit.
+
+Perform ordinations and look at the clustering by BodySite and by Prep (~ the kit used):
+```{r, echo=FALSE}
+ps <- phyloseq(otu_table(st,taxa_are_rows = FALSE),
+               sample_data(samdf),
+               tax_table(tax))
+
+{ sink("/dev/null"); ord <- ordinate(ps, distance="bray", method="NMDS"); sink() }
+p.ord <- plot_ordination(ps, ord, color="Type", shape="Prep") + theme_bw() +
+  scale_color_manual(values=c("Negative"="red", "Placenta"="orange", "Saliva"="green", "Vaginal Swab"="blue")) +
+  scale_shape_manual(values=c("PSP"=16, "Mobio"=4))
+grid.arrange(plot_ordination(ps, ord, color="Type") + theme_bw() + theme(aspect.ratio=1) + scale_color_manual(values=c("Negative"="red", "Placenta"="orange", "Saliva"="green", "Vaginal Swab"="blue")), plot_ordination(ps, ord, color="Prep") + theme_bw() + theme(aspect.ratio=1), nrow=1, widths=c(0.56, 0.5))
+```
+There are four clusters in the ordination: (1) Saliva samples, both kits, (2) Vaginal Swab samples, PSP kit, (3) Placenta/Control samples, Mobio kit, (4) Placenta/Control samples, PSP kit.
+
+Taking a closer look at the negative controls:
+```{r, echo=FALSE}
+ggplot(data=samdf, aes(x=BodySite, y=Reads, color=BodySite)) + geom_violin(size=0.1) + geom_point() + theme_bw() + theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) + ylab("Reads")
+psn <- subset_samples(ps, neg)
+plot_ordination(psn, ordinate(psn, distance="bray", method="NMDS"), color="BodySite") + theme_bw() + facet_wrap(~Prep)
+```
+
+The distribution of read counts in negative controls is completly non-overlapping with the much greater distribution in vaginal/saliva samples. The placenta samples largely follow the air/sterils swab distribution, with a couple of high-read-count outliers. The negative controls totally separate by kit, and the different typers of negative controls are intermixed in ordinations. We'll use them inerchangably.
+
+Look for non-contaminants. In this case, it is reasonable to simply pool the placenta/negatives across the kits. With more samples, independent processing would be better, but sample numbers are so low here, and the non-contaminants we are testing for are not kit dependent:
+```{R}
+out <- isNotContaminant(subset_samples(ps, neg | plac), neg="neg", method="prevalence", detailed=TRUE)
+out$ind <- seq(nrow(out))
+ggplot(data=out, aes(x=ind, y=p)) + geom_point() + scale_y_log10() + geom_hline(yintercept=0.1, color="red") + geom_hline(yintercept=0.01, color="red") + theme_bw()
+summary(out$p)
+sum(out$p < 0.1, na.rm=TRUE); sum(out$p < 0.01, na.rm=TRUE); sum(p.adjust(out$p)<0.5, na.rm=TRUE)
+```
+
+So 49 have a raw p-value of less than 0.01, and if we want an FDR < 50% we only get 5 hits. It's worth requiring a higher total prevalence here though:
+
+```{R}
+out5 <- out[out$prev>=5,]
+dim(out5);sum(p.adjust(out5$p)<0.5)
+plot(sort(p.adjust(out5$p))[1:25], ylab="Adjusted P-Value", xlab="Rank")
+abline(0.5, 0, col="red")
+# save 2.6x3 in PDF
+```
+
+So there are 7-10 "believable" hits if using an FDR cutoff. Let's just go ahead and annotate the top 20:
+```{r}
+sq20 <- rownames(out5)[order(out5$p)[1:20]]
+foodf <- samdf[samdf$neg | samdf$plac,]
+for(sq in sq20[1:7]) {
+  print(table(factor(samdf$Type), factor(st[rownames(samdf), sq]>0, levels=c(TRUE, FALSE))))
+}
+anndf <- cbind(as.data.frame(unname(cbind(sapply(sq20, function(sq) sum(st[samdf$BodySite=="Vaginal Swab",sq]>0)),
+sapply(sq20, function(sq) sum(st[samdf$BodySite=="Saliva",sq]>0)), match(sq20,colnames(st)), colSums(st[!(samdf$neg | samdf$plac), sq20])))), as.data.frame(unname(tax[sq20,])))
+colnames(anndf) <- c("Vagina", "Saliva", "Rank", "Abundance (Pos)", colnames(tax))
+anndf
+````
+
+And use [BLAST against nt as well](https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome), excluding environmental and unculturables:
+```{r, echo=FALSE}
+# Print a fasta-formatted list of top 20 to standard out
+# dada2:::pfasta(sq20)
+```
+
+From the BLAST results (most annotations are from 100% identity and 100% coverage hits)....
+
+ 1. Homo sapiens
+ 2. Lactobacillus crispatus
+ 3. Homo sapiens
+ 4. Homo sapiens
+ 5. Homo sapiens
+ 6. uncult Ruminococcaceae
+ 7. Homo sapiens
+  + *THIS THE FDR 50% STOPPING POINT*
+ 8. Streptococcus mitis
+ 9. Lactobacillus mucosae
+10. uncult Prevotella
+11. Lactobacillus crispatus
+12. uncult Bacteroidales
+13. uncult Phylum:SHA-109
+14. uncult Subdolingranulum
+15. uncult Phylum:SHA-109
+16. uncult Rikenellaceae
+17. Homo sapiens
+  + *THIS IS A NATURAL P-VALUE STOPPING POINT*
+18. Clostridiales bacterium
+19. Micrococcus luteus
+20. uncult Bacteria
+
+## Conclusions
+
+There is a pretty clean story here. At the FDR<0.5 cutoff, 5/7 of the "significant" non-contaminants are human DNA. This demonstrates the method is working, non-target human DNA is indeed a "contaminant" of the microbial sequencing in the placenta samples. However, it also demonstrates that there is little to no evidence for a placenta microbiome here, at least a core microbiome that is common across placental environments.
