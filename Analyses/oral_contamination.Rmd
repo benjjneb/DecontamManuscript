@@ -159,25 +159,26 @@ plot_abundance <- function(ps, taxa_to_plot, conc, taxa_are_rows=TRUE, norm=TRUE
   }
 }
 
+FIG2_TEXTSIZE <- 11
 
-f2a <- plot_abundance(MUC,c('Seq3','Seq152','Seq53','Seq1','Seq12','Seq200'),"quant_reading",taxa_are_rows=FALSE) + facet_wrap(~taxa_to_plot,nrow=1) + labs(x= 'log(DNA concentration)', y = 'log(Seq Abundance)', color='', size=2) + geom_point(aes(color=Sample_or_Control)) +
-   theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+f2a <- plot_abundance(MUC,c('Seq3','Seq152','Seq53','Seq1','Seq12','Seq200'),"quant_reading",taxa_are_rows=FALSE) + facet_wrap(~taxa_to_plot,nrow=1) + labs(x= 'log(DNA concentration)', y = 'log(Frequency)', color='', size=1) + geom_point(aes(color=Sample_or_Control)) +
+   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=15,angle=0,
+        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                    hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=15,angle=0,
+        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=15,angle=90,
+        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
                                     hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = 15, angle = 0),
-        legend.title = element_text(size = 15, angle = 0),
-        legend.text = element_text(size = 15, angle = 0),
+        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
         legend.position = 'bottom')
 
 f2a
 ```
 
-#Figure 2b, Figure S2: examine p-values of taxa in oral dataset
+#Figure 2b, Figure S2: examine Ps of taxa in oral dataset
 ```{r}
 #Apply a minimal prevalence filter to filter out taxa present in fewer than 2 samples.
 MUC_prev2samp <- filter_taxa(MUC, function(x) sum(x > 0) > 1, TRUE)
@@ -375,75 +376,79 @@ TAXann <- rbind(TAXannotate_full, TAXannotate_oral, TAXannotate_contam)
 
 #2b
 histo <- ggplot(TAXann, aes(pval.c, fill=Group))
-f2b <- histo + geom_histogram() + labs(x = 'P-value', y='Number ASVs') + facet_wrap(~Group) + scale_fill_manual(values=cbbPalette) +
-   theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+f2b <- histo + geom_histogram() + labs(x = 'decontam P', y='Number ASVs') + facet_wrap(~Group) + scale_fill_manual(values=cbbPalette) +
+   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=15,angle=0,
+        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                    hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=15,angle=0,
+        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=15,angle=90,
+        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
                                     hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = 15, angle = 0),
-        legend.title = element_text(size = 15, angle = 0),
-        legend.text = element_text(size = 15, angle = 0),
+        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
         legend.position = 'bottom')
 
 f2b
 
 #combine 2a and 2b
-plot_grid(f2a, f2b, labels='auto',nrow=2)
+f2 <- plot_grid(f2a, f2b, labels='auto',nrow=2)
+f2
+# ggsave("~/Desktop/Contamination/Figures/Fig2.pdf", f2, width=7, height=5, units="in", useDingbats=FALSE)
 
 #S2, without log 
 s2 <- ggplot(TAXann, aes(pval.c, fill=Group))
 fs2a <- s2 + 
   geom_histogram(aes(weight=TAXsums)) + 
-  labs(x = 'P-value', y='Number Reads') + 
+  labs(x = 'decontam P', y='Number Reads') + 
   scale_y_continuous(labels=scientific) +
   facet_wrap(~Group) + 
   scale_fill_manual(values=cbbPalette) +
   guides(fill=FALSE) +
-  theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+  theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=15,angle=0,
+        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                    hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=15,angle=0,
+        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=15,angle=90,
+        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
                                     hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = 15, angle = 0))
+        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0))
 
 fs2a
 
 s2 <- ggplot(TAXann, aes(pval.c, fill=Group))
 fs2b <- s2 + 
   geom_histogram(aes(weight=TAXsums)) + 
-  labs(x = 'P-value', y='Number Reads') + 
+  labs(x = 'decontam P', y='Number Reads') + 
   facet_wrap(~Group) + 
   scale_fill_manual(values=cbbPalette) +
   scale_y_log10() +
   
-   theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=15,angle=0,
+        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                    hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=15,angle=0,
+        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
                                     hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=15,angle=90,
+        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
                                     hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = 15, angle = 0),
-        legend.title = element_text(size = 15, angle = 0),
-        legend.text = element_text(size = 15, angle = 0),
+        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
+        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
         legend.position = 'bottom')
 
 fs2b
 
-plot_grid(fs2a,fs2b, labels='auto', nrow=2,rel_heights=c(1,1.25))
+fs2 <- plot_grid(fs2a,fs2b, labels='auto', nrow=2,rel_heights=c(1,1.25))
+fs2
+# ggsave("~/Desktop/Contamination/Figures/FigS2.pdf", fs2, width=7, height=5, units="in", useDingbats=FALSE)
 ```
 
-#Table S1: Blacklist taxa with high p-values
+#Table S1: Blacklist taxa with high Ps
 ```{r}
-#what are the blacklisters with high p-values?
+#what are the blacklisters with high Ps?
 TAXtmp <- TAXannotate[is.na(TAXannotate$pval.c) == FALSE,]
 TAXtmp$GenusREC[TAXtmp$pval.c > 0.9 & TAXtmp$GenusREC %in% blacklist_nooral]
 unique(TAXtmp$GenusREC[TAXtmp$pval.c > 0.9 & TAXtmp$GenusREC %in% blacklist_nooral])
@@ -457,5 +462,5 @@ TAXannotate_oralmaybes <- TAXannotate[TAXannotate$Id %in% oralmaybes,]
 plot_abundance(MUC, oralmaybes, "quant_reading", taxa_are_rows=FALSE) +
   geom_point(aes(color=Sample_or_Control)) +
   facet_wrap(~taxa_to_plot) + 
-  labs(title='Blacklist taxa with high p-values')
+  labs(title='Blacklist taxa with high P')
 ```
