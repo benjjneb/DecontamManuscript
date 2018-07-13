@@ -1,115 +1,128 @@
 ---
-title: "Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data: Oral analysis"
-author: "Nicole Davis"
-date: "11/02/2017"
+title: "Analaysis of Oral Mucosal 16S dataset"
+author: "Nicole Davis, Benjamin J Callahan"
+date: "7/13/2018"
 output: html_document
 ---
 
-This script contains the code required to reproduce Figures 1, 2, and S2. It generates the data featured in Table S1.
-
-#prepare workspace
+## Prepare workspace
 ```{r, warning=FALSE, message=FALSE}
 #load packages
-cran_packages <- c("reshape2", "ggplot2", "vegan", "stringr", "gridExtra", "ape", "RColorBrewer", "plyr", "dplyr", "knitr","cowplot","scales")
-bioc_packages <- c("phyloseq","decontam")
-sapply(c(cran_packages, bioc_packages), library, character.only = TRUE)
+cran_packages <- c("reshape2", "ggplot2", "vegan", "stringr", "gridExtra", "ape", "RColorBrewer", "dplyr", "knitr","cowplot","openxlsx", "circlize")
+bioc_packages <- c("phyloseq","decontam","ComplexHeatmap")
+sapply(c(cran_packages, bioc_packages), require, character.only = TRUE)
 
-#establish settings
+#settings
 theme_set(theme_bw())
 options(stringsAsFactors = FALSE)
-wd <- "~/Desktop/Contamination/Analyses/OralContamination" # CHANGE ME
+path.in <- "~/DecontamManuscript/Analyses/OralContamination" # CHANGE ME
+path.out <- "~/DecontamManuscript/Analyses/Figures" # CHANGE ME
+
+#color palettes
+cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
+methodPalette <- c(Prevalence="turquoise3", Frequency="orangered1", Combined="darkorchid4")
+prevalencePalette <- c("2" = "#edf8e9", "3-5" = "#bae4b3", "6-10" = "#74c476", "11+" = "#238b45")
 
 #load phyloseq object
-load(file.path(wd, 'MUC_ps.Rdata'))
+load(file.path(path.in, "hypo_sa1_0001_DADA2_ps_new.Rdata"))
+ps
+```
+
+## Retain only some samples for analysis
+There may be differences between DNA extracted in PowerSoil plates vs. tubes. For these analyses, subset to just include plate samples, and remove any barcode replicates ("R04" samples).
+```{r}
+#remove outlier sample that was added to the DNA pool twice
+MUC <- subset_samples(ps, X.SampleID != "P1104C08703R00")
+
+#for contamination analysis, keep only samples that were extracted in 96-well plates
+MUC <- subset_samples(MUC, Extraction.Protocol == "plate")
+
+#the 'Replicate' column indicates whether the sample is a 'normal' sample (R00) or whether the sample is a type of derivative sample, e.g. 'R04' indicates the sample's DNA was PCR amplified a second time with a different primer barcode
+MUC <- subset_samples(MUC, Replicate == "R00")
+
+#remove singletons (there shouldn't be any from DADA2; only singletons might be strays after subsetting to plate samples)
+MUC <- prune_taxa(taxa_sums(MUC) > 1, MUC)
+MUC <- prune_samples(sample_sums(MUC) > 0, MUC)
+
+#compare unfiltered data to plate-extracted, non-barcode replicate samples that lack singletons.
+ps
 MUC
+
+MUCprev <- transform_sample_counts(MUC, function(x) ifelse(x>0, 1, 0))
 MUCrelabund <- transform_sample_counts(MUC, function(x) x/sum(x))
 ```
 
-#extract OTU / TAX tables, mapping file
+## Extract OTU table and sample metadata as base R data.frames
 ```{r, echo=FALSE}
-#extract tables
+#get sample sums: each sample's sequencing depth
+sample_data(MUC)$sample_sums <- sample_sums(MUC)
 MAP <- data.frame(sample_data(MUC))
-OTU <- data.frame(otu_table(MUC))
-TAX <- data.frame(tax_table(MUC))
-
-#add prevalence and ID columns to TAX table
-TAX$id <- rownames(TAX)
-TAX$prevalence <- colSums(OTU > 0)
-TAX$abundance_abs <- taxa_sums(MUC)
+OTU <- data.frame(as(otu_table(MUC), 'matrix'))
+# TAX <- data.frame(tax_table(MUC)) # These older assignments will be replaced by Silva v128 assignments
 ```
 
-#Figure 1
-#contaminant and oral taxon abundances across samples
+## Load annotated taxonomy table
+This includes the DNA sequences, HOMD taxonomic assignments, and by-hand resolutions of discrepancies between Silva and HOMD.
 ```{r}
-#prepare Figure 1a, expected frequency patterns
-x <- 1:100
-y <- -1*x
-sampletype <- c(rep('Biological', 50),rep('Control',50))
-
-df <- data.frame(x=x, Contaminant=y, Non.Contaminant=rep(-1*50,100), sampletype=sampletype)
-df2 <- melt(df, id.vars = c('x','sampletype'))
-df2$variable <- as.character(df2$variable)
-df2$variable[df2$variable == 'Non.Contaminant'] <- 'Non-Contaminant'
-df2$slope <- -1
-df2$slope[101:200] <- 0
-df2$intercept <- -1
-df2$intercept[101:200] <- -50
-
-set.seed(2) #required for reproducible geom_jitter plot
-plot1 <- ggplot(df2, aes(x,value))
-f1a <- plot1 + 
-  geom_jitter(height = 20, size=2) +
-  geom_abline(aes(intercept=intercept, slope=slope, color=variable)) + 
-  facet_wrap(~variable) +
-  labs(x='log(DNA concentration)', y='log(Frequency)') +
-  guides(color=FALSE) +
-  scale_color_manual(values=c('red','blue')) +
-  theme(panel.grid.minor = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),  
-        axis.title.x = element_text(colour="grey20",size=10,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),  
-        axis.title.y = element_text(colour="grey20",size=10,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(colour = "grey20", size=8))
-
-#Prepare Figure 1b, Prevalence patterns
-set.seed(1618)
-x1 <- sample(5:95, 100, replace=TRUE)/100
-y1 <- sample(5:95, 100, replace=TRUE)/100
-df <- data.frame(x=x1,y=y1)
-df <- df[abs(df$x - df$y) > 0.1,]
-
-df$SeqType <- 'Contaminant'
-df$SeqType[df$y > df$x] <- 'Non-Contaminant'
-df <- df[sample(nrow(df), 10), ]
-df$SeqName <- paste0('Seq',1:dim(df)[1])
-plot2 <- ggplot(df, aes(x,y, label=SeqName))
-
-f1b <- plot2 + labs(x='Prevalence in Controls', y='Prevalence in Samples') + 
-  scale_x_continuous(limits=c(0,1)) +
-  scale_y_continuous(limits=c(0,1)) +
-  geom_abline(slope=1, color='gray', linetype='dashed') + 
-  geom_text(aes(color=SeqType)) + 
-  theme(axis.text.x = element_text(colour="grey20",size=10,angle=0,                                hjust=0.55,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=10,angle=0,
-                                   hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=10,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=10,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        legend.title = element_blank(),
-        legend.text = element_text(size = 10, angle = 0),
-        legend.position = 'bottom')
-
-plot_grid(f1a,f1b, labels='auto',rel_widths=c(1.5,1))
+TAXannotate <- read.csv(file.path(path.in, "TAXannotate.csv"))
+rownames(TAXannotate) <- TAXannotate$Id
+TAXannotate <- TAXannotate[taxa_names(MUC),] # subset down to the taxa being analyzed
 ```
 
-#Figure 2a: Frequency patterns of taxa in the oral dataset
+## Assign taxonomy by classifying ASVs using the SILVA v128 database
+This could be refactored into the preprocessing Rmd, which used an earlier version of the Silva database that will be replaced.
 ```{r}
-#plot frequency of taxa
+# Function to simplify Silva assignments for consistency with genus reporting in literature
+parse_silva_genus <- Vectorize(function(gen) {
+  gen <- gsub("\\[", "", gen)
+  gen <- gsub("\\]", "", gen)
+  gen <- gsub("Escherichia/Shigella", "Escherichia", gen)
+  gen <- gsub("Burkholderia-Paraburkholderia", "Burkholderia", gen)
+  gen <- gsub("Burkholderia-Caballeronia-Paraburkholderia", "Burkholderia", gen)
+  gen <- gsub("_.*$", "", gen)
+  if(is.na(gen)) gen <- "unknown"
+  gen
+})
+# Uncomment the following to run w/o the taxtabSilva128.rds file
+#set.seed(100)
+#library(dada2); packageVersion("dada2")
+#t128 <- assignTaxonomy(TAXannotate$Sequence, "~/tax/silva_nr_v128_train_set.fa.gz", multithread=TRUE)
+#t128[,"Genus"] <- parse_silva_genus(t128[,"Genus"])
+#saveRDS(t128, file.path(path.in, "t128.rds"))
+t128 <- readRDS(file.path(path.in, "taxtabSilva128.rds"))
+TAXannotate[,colnames(t128)] <- t128
+TAXannotate[,"GenusSILVA"] <- t128[,"Genus"]
+```
+
+## Augment the annotated taxonomy table.
+This includes includes assigning the recommended Genus column, as decided by hand between Silva and HOMD assignments:
+```{r}
+# 'GenusREC' column will be the recommended taxonomy, based on Taxonomy_recommendation notes.
+# assign SILVA to anything that's 'both'
+# assign 'neither' to anything that's in one sample or has no recommendation from SILVA or HOMD
+unique(TAXannotate$Taxonomy_recommendation) 
+# Values are: "only in one sample", "GenusSILVA", "GenusHOMD", "both", "neither at genus level"
+TAXannotate$GenusREC <- "neither" # Default is unassigned
+use.silva <- TAXannotate$Taxonomy_recommendation %in% c("GenusSILVA", "both")
+TAXannotate$GenusREC[use.silva] <- TAXannotate$GenusSILVA[use.silva] # Assign Silva genus
+use.homd <- TAXannotate$Taxonomy_recommendation %in% c("GenusHOMD")
+TAXannotate$GenusREC[use.homd] <- TAXannotate$GenusHOMD[use.homd] # Assign HOMD genus
+# Augment with abundance and prevalence information
+TAXannotate$TAXsums <- taxa_sums(MUC)[TAXannotate$Id] # Add total abundances
+TAXannotate$TAXprev <- taxa_sums(MUCprev)[TAXannotate$Id] # Add prevalences
+```
+
+## Apply prevalence filter to filter out taxa present in fewer than 2 samples. This is a very lenient filter.
+```{r}
+MUC2 <- filter_taxa(MUC, function(x) sum(x > 0) > 1, TRUE)
+OTU2 <- OTU[,taxa_names(MUC2)]
+TAX2 <- TAXannotate[taxa_names(MUC2),]
+MAP2 <- MAP[sample_names(MUC2),]
+```
+
+## Plot patterns of taxa showing the inverse and flat frequency patterns in oral taxa (Figure 2a)
+```{r}
+#plot_abundance function for figures (similar to the plot_frequency function in package)
 plot_abundance <- function(ps, taxa_to_plot, conc, taxa_are_rows=TRUE, norm=TRUE, log=TRUE, returndf=FALSE){
 
   ot <- as(otu_table(ps), "matrix")
@@ -158,309 +171,347 @@ plot_abundance <- function(ps, taxa_to_plot, conc, taxa_are_rows=TRUE, norm=TRUE
     return(plot_melt)
   }
 }
-
-FIG2_TEXTSIZE <- 11
-
-f2a <- plot_abundance(MUC,c('Seq3','Seq152','Seq53','Seq1','Seq12','Seq200'),"quant_reading",taxa_are_rows=FALSE) + facet_wrap(~taxa_to_plot,nrow=1) + labs(x= 'log(DNA concentration)', y = 'log(Frequency)', color='', size=1) + geom_point(aes(color=Sample_or_Control)) +
-   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                   hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.position = 'bottom')
+#Figure 2a
+f2a <- plot_abundance(MUC,c('Seq3','Seq53','Seq152','Seq1','Seq12','Seq200'),
+                      "quant_reading",taxa_are_rows=FALSE)
+f2a <- f2a + facet_wrap(~taxa_to_plot,nrow=1) + 
+      labs(x= 'log(DNA concentration)', y = 'log(Frequency)') + 
+#      geom_point(aes(color=Sample_or_Control)) +
+      geom_point() +
+#      theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+#                                       hjust=.5,vjust=.5,face="plain"),
+#            axis.text.y = element_text(colour="grey20",size=10,angle=0,
+#                                       hjust=1,vjust=0,face="plain"),  
+#            axis.title.x = element_text(colour="grey20",size=15,angle=0,
+#                                        hjust=.5,vjust=0,face="plain"),
+#            axis.title.y = element_text(colour="grey20",size=15,angle=90,
+#                                        hjust=.5,vjust=.5,face="plain"),
+#            strip.text.x = element_text(size = 15, angle = 0),
+#            legend.title = element_text(size = 15, angle = 0),
+#            legend.text = element_text(size = 15, angle = 0)) +
+      theme(legend.position = 'top')
 
 f2a
 ```
 
-#Figure 2b, Figure S2: examine Ps of taxa in oral dataset
+## Call contaminants using isContaminant
 ```{r}
-#Apply a minimal prevalence filter to filter out taxa present in fewer than 2 samples.
-MUC_prev2samp <- filter_taxa(MUC, function(x) sum(x > 0) > 1, TRUE)
-OTU2samp <- OTU[,colnames(OTU) %in% taxa_names(MUC_prev2samp)]
-
-#load annotated taxonomy table. The column 'GenusREC' is the recommended taxonomy (Methods).
-TAXannotate <- read.csv(file.path(wd, "TAXannotate.csv"))
-
-for(i in 1:dim(TAXannotate)[1]){
-  I = which(colnames(TAXannotate) == TAXannotate$Taxonomy_recommendation[i])
-  if(length(I) ==0){
-    TAXannotate$GenusREC[i] <- 'neither'
-  } else
-  TAXannotate$GenusREC[i] <- TAXannotate[i,I]
-}
-
-TAXsums <- data.frame(TAXsums = taxa_sums(MUC_prev2samp))
-TAXprev <- data.frame(TAXprev = TAX$prevalence, Id = TAX$id)
-TAXannotate <- merge(TAXannotate, TAXsums, by.x = 'Id', by.y = 'row.names', all.x=TRUE, all.y=FALSE, sort=FALSE)
-TAXannotate <- merge(TAXannotate, TAXprev, by.x = 'Id', by.y = 'Id', all.x=TRUE, all.y=FALSE, sort=FALSE)
-
-TAXa_formerging <- TAXannotate[c(1,2,9:18)]
-
-#merge TAX with TAXannotate
-TAX <- merge(TAX, TAXa_formerging, by.x = "id", by.y = "Id", all.x = TRUE, all.y = FALSE, sort=FALSE)
-
-#Load database files
-contam_database <- read.csv(file.path(wd, "contamination_database.csv"))
-oral_database <- read.csv(file.path(wd, "oral_database.csv"))
-HOMD <- read.csv(file.path(wd, "homd_taxonomy_table.csv"))
-
-#Derive a list of genera that have been identified as contaminants in previous studies in the literature. This is the 'blacklist'.
-contaminatinggenera <- contam_database %>% 
-  group_by(Genus) %>% 
-  summarize(numberstudies = length(unique(Reference)))
-
-#Generate a list of genera that have been visualized in the mouth. Even if these taxa appear in the blacklist, we will not consider them contaminants.
-orallist <- unique(oral_database$Genus)
-
-#make blacklist. prevent overlap between orallist and blacklist by removing orallist taxa from blacklist
-blacklist <- contaminatinggenera$Genus[contaminatinggenera$Genus != 'unspecified']
-blacklist_nooral <- blacklist[!(blacklist %in% orallist)]
-
-#Call contaminants using isContaminant, merge resulting p-values with TAXannotate
-ocf <- isContaminant(as.matrix(OTU2samp), MAP$quant_reading, threshold = 0.1, detailed=TRUE, normalize=TRUE, method='frequency')
-
-ocp <- isContaminant(as.matrix(OTU2samp), MAP$quant_reading, threshold = 0.1, detailed=TRUE, normalize=TRUE, method='prevalence',neg=MAP$Sample_or_Control == 'Control Sample')
-
-occ <- isContaminant(as.matrix(OTU2samp), MAP$quant_reading, threshold = 0.1, detailed=TRUE, normalize=TRUE, method='combined',neg=MAP$Sample_or_Control == 'Control Sample')
-
-pvalcols <- data.frame(id=rownames(ocf),pval.f=ocf$p, pval.p=ocp$p, pval.c = occ$p)
-
-#merge those results with the TAXannotate dataframe
-TAXannotate <- merge(TAXannotate, pvalcols, by.x = 'Id', by.y = 'id', all.x = TRUE, sort=FALSE)
-
-#get p-values
-get_p <- function(df, blacklist, orallist, thresholds, taxcolumn){
-  
-  df <- df[is.na(df$p) == FALSE,]
-  
-  all_cn <- vector('numeric', length(thresholds))
-  all_cp <- vector('numeric', length(thresholds))
-  all_cnReads <- vector('numeric', length(thresholds))
-  all_cpReads <- vector('numeric', length(thresholds))
-  
-  ocn <- vector('numeric', length(thresholds))
-  ocnReads <- vector('numeric', length(thresholds))
-  bcn <- vector('numeric', length(thresholds))
-  bcnReads <- vector('numeric', length(thresholds))
-  
-  ocp <- vector('numeric', length(thresholds))
-  ocpReads <- vector('numeric', length(thresholds))
-  bcp <- vector('numeric', length(thresholds))
-  bcpReads <- vector('numeric', length(thresholds))
-  
-  #percent contaminating taxa and reads that are in blacklist, orallist
-  tpo <- vector('numeric', length(thresholds))
-  rpo <- vector('numeric', length(thresholds))
-  tpb <- vector('numeric', length(thresholds))
-  rpb <- vector('numeric', length(thresholds))
-  
-  gens <- vector('numeric', length(thresholds))
-  
-  G = which(colnames(df) == taxcolumn)
-
-  for (i in 1:length(thresholds)){
-    #what is number of isContaminants==TRUE overall?
-    all_cn[i] <- sum(df$p <= thresholds[i])
-    
-    #percent isContaminants==TRUE overall?
-    all_cp[i] <- sum(df$p <= thresholds[i]) / dim(df)[1]
-    
-    #num isContaminants==TRUE in lists?
-    ocn[i] <- sum(df$p <= thresholds[i] & df[,G] %in% orallist)
-    bcn[i] <- sum(df$p <= thresholds[i] & df[,G] %in% blacklist)
-    
-    #percent isContaminants=TRUE in lists?
-    ocp[i] <- sum(df$p <= thresholds[i] & df[,G] %in% orallist) / dim(df)[1]
-    bcp[i] <- sum(df$p <= thresholds[i] & df[,G] %in% blacklist) / dim(df)[1]
-    
-    ##repeat for read counts and percents
-    
-    #num isContaminants==TRUE overall?
-    all_cnReads[i] <- sum(df$TAXsums[df$p <= thresholds[i]])
-    
-    #percent isContaminants==TRUE overall?
-    all_cpReads[i] <- sum(df$TAXsums[df$p <= thresholds[i]]) / sum(df$TAXsums)
-    
-    #num isContaminants==TRUE in lists?
-    ocnReads[i] <- sum(df$TAXsums[df$p <= thresholds[i] & df[,G] %in% orallist])
-    bcnReads[i] <- sum(df$TAXsums[df$p <= thresholds[i] & df[,G] %in% blacklist])
-    
-    #percent isContaminants==TRUE in lists?
-    ocpReads[i] <- sum(df$TAXsums[df$p <= thresholds[i] & df[,G] %in% orallist]) /
-      sum(df$TAXsums)
-    bcpReads[i] <- sum(df$TAXsums[df$p <= thresholds[i] & df[,G] %in% blacklist]) /
-      sum(df$TAXsums)
-    
-    #number of unique genera at each threshold
-    gens[i] <- length(unique(df[,G][df$p >= thresholds[i]]))
-    
-    #percent of contaminants found in whitelist
-    tpo[i] <- ocn[i] / sum(df$p <= thresholds[i])
-    tpb[i] <- bcn[i] / sum(df$p <= thresholds[i])
-    
-    #percent isContaminants=TRUE in lists?
-    rpo[i] <- ocnReads[i] / sum(df$TAXsums[df$p <= thresholds[i]])
-    rpb[i] <- bcnReads[i] / sum(df$TAXsums[df$p <= thresholds[i]])
-    
-  }
-  
-  #orallist
-  df1 <- data.frame(Taxonomy = taxcolumn, 
-                    Threshold=thresholds, 
-                    NumberTaxa=ocn,
-                    PercentTaxa=ocp,
-                    PercentContamTaxainList = tpo,
-                    PercentContamReadsinList = rpo,
-                    NumberReads = ocnReads,
-                    PercentReads = ocpReads,
-                    List='Orallist',
-                    Contam='isContaminant=TRUE')
-  
-  #blacklist
-  df2 <- data.frame(Taxonomy = taxcolumn, 
-                    Threshold=thresholds, 
-                    NumberTaxa=bcn,
-                    PercentTaxa=bcp,
-                    PercentContamTaxainList = tpb,
-                    PercentContamReadsinList = rpb,
-                    NumberReads = bcnReads,
-                    PercentReads = bcpReads,
-                    List = 'Blacklist',
-                    Contam='isContaminant=TRUE')
-  
-  #all
-  df3 <- data.frame(Taxonomy = taxcolumn, 
-                    Threshold=thresholds, 
-                    NumberTaxa=all_cn,
-                    PercentTaxa=all_cp,
-                    PercentContamTaxainList = NA,
-                    PercentContamReadsinList = NA,
-                    NumberReads = all_cnReads,
-                    PercentReads = all_cpReads,
-                    List = 'All taxa',
-                    Contam='isContaminant=TRUE')
-  
-  df4 <- rbind(df1,df2,df3)
-  df4$UniqueGenera <- gens
-  return(df4)
-  
-}
-#test at multiple thresholds
-thresholds <- seq(0, 1, length.out = 101)
-
-##Plot p-value distributions
-#set color palette
-cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
-
-#get p-values
-TAXannotate$pval <- TAXannotate$pval.c
-
-TAXannotate_full <- TAXannotate
-TAXannotate_full$Group <- "All ASVs"
-
-TAXannotate_oral <- TAXannotate
-TAXannotate_oral$pval.c[!(TAXannotate$GenusREC %in% orallist)] <- NA
-TAXannotate_oral$Group <- "Oral Database"
-
-TAXannotate_contam <- TAXannotate
-TAXannotate_contam$pval.c[!(TAXannotate$GenusREC %in% blacklist_nooral)] <- NA
-TAXannotate_contam$Group <- "Contamination Database"
-
-TAXann <- rbind(TAXannotate_full, TAXannotate_oral, TAXannotate_contam)
-
-#2b
-histo <- ggplot(TAXann, aes(pval.c, fill=Group))
-f2b <- histo + geom_histogram() + labs(x = 'decontam P', y='Number ASVs') + facet_wrap(~Group) + scale_fill_manual(values=cbbPalette) +
-   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                   hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.position = 'bottom')
-
-f2b
-
-#combine 2a and 2b
-f2 <- plot_grid(f2a, f2b, labels='auto',nrow=2)
-f2
-# ggsave("~/Desktop/Contamination/Figures/Fig2.pdf", f2, width=7, height=5, units="in", useDingbats=FALSE)
-
-#S2, without log 
-s2 <- ggplot(TAXann, aes(pval.c, fill=Group))
-fs2a <- s2 + 
-  geom_histogram(aes(weight=TAXsums)) + 
-  labs(x = 'decontam P', y='Number Reads') + 
-  scale_y_continuous(labels=scientific) +
-  facet_wrap(~Group) + 
-  scale_fill_manual(values=cbbPalette) +
-  guides(fill=FALSE) +
-  theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                   hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0))
-
-fs2a
-
-s2 <- ggplot(TAXann, aes(pval.c, fill=Group))
-fs2b <- s2 + 
-  geom_histogram(aes(weight=TAXsums)) + 
-  labs(x = 'decontam P', y='Number Reads') + 
-  facet_wrap(~Group) + 
-  scale_fill_manual(values=cbbPalette) +
-  scale_y_log10() +
-  
-   theme(axis.text.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=.5,face="plain"),
-        axis.text.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                   hjust=1,vjust=0,face="plain"),  
-        axis.title.x = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=0,
-                                    hjust=.5,vjust=0,face="plain"),
-        axis.title.y = element_text(colour="grey20",size=FIG2_TEXTSIZE,angle=90,
-                                    hjust=.5,vjust=.5,face="plain"),
-        strip.text.x = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.title = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.text = element_text(size = FIG2_TEXTSIZE, angle = 0),
-        legend.position = 'bottom')
-
-fs2b
-
-fs2 <- plot_grid(fs2a,fs2b, labels='auto', nrow=2,rel_heights=c(1,1.25))
-fs2
-# ggsave("~/Desktop/Contamination/Figures/FigS2.pdf", fs2, width=7, height=5, units="in", useDingbats=FALSE)
+conc2 <- MAP2$quant_reading # PicoGreen fluroescent intensity
+neg2 <- MAP2$Sample_or_Control == 'Control Sample' # True if a negative control sample
+# Frequency-based contaminant classification
+ocf <- isContaminant(as.matrix(OTU2), conc=conc2, threshold=0.1, detailed=TRUE, normalize=TRUE, method='frequency')
+# Prevalence-based contaminant classification
+ocp <- isContaminant(as.matrix(OTU2), neg=neg2, threshold=0.1, detailed=TRUE, normalize=TRUE, method='prevalence')
+# Combined contaminant classification
+occ <- isContaminant(as.matrix(OTU2), conc=conc2, neg=neg2, threshold=0.1, detailed=TRUE, normalize=TRUE, method='combined')
 ```
 
-#Table S1: Blacklist taxa with high Ps
+## Combine scores from each method into a data.frame, and add to TAX2
 ```{r}
-#what are the blacklisters with high Ps?
-TAXtmp <- TAXannotate[is.na(TAXannotate$pval.c) == FALSE,]
-TAXtmp$GenusREC[TAXtmp$pval.c > 0.9 & TAXtmp$GenusREC %in% blacklist_nooral]
-unique(TAXtmp$GenusREC[TAXtmp$pval.c > 0.9 & TAXtmp$GenusREC %in% blacklist_nooral])
+probcols <- data.frame(row.names=rownames(ocf),prob.f=ocf$p.freq, prob.p=ocp$p.prev, prob.c = occ$p)
+TAX2 <- cbind(TAX2[,colnames(TAXannotate)], probcols[TAX2$Id,])
+# Crude comparison of frequency and prevalence contaminant assignment
+table(probcols$prob.f<0.1, probcols$prob.c<0.1)
+```
 
-oralmaybes <- TAXtmp$Id[TAXtmp$pval.c > 0.9 & TAXtmp$GenusREC %in% blacklist_nooral]
+Solid agreement.
 
-TAXannotate_oralmaybes <- TAXannotate[TAXannotate$Id %in% oralmaybes,]
-#write.csv(TAXannotate_oralmaybes, 'oralmaybes.csv')
-#this .csv file served as the basis for Table S1
+## Load reference database files & organize genera from the reference databases
+```{r}
+contam_database <- read.csv(file.path(path.in, "contamination_database.csv"))
+oral_database <- read.csv(file.path(path.in, "oral_database.csv"))
+HOMD <- read.csv(file.path(path.in, "homd_taxonomy_table.csv"))
 
-plot_abundance(MUC, oralmaybes, "quant_reading", taxa_are_rows=FALSE) +
-  geom_point(aes(color=Sample_or_Control)) +
-  facet_wrap(~taxa_to_plot) + 
-  labs(title='Blacklist taxa with high P')
+### Oral genera
+#genera that have been visualized in the mouth.
+oral_visualized <- unique(oral_database$Genus)
+
+#genera that have been named & cultivated [BJC: removed not visualized condition]
+oral_cultivated <- unique(HOMD$Genus[HOMD$Status %in% c('Named','Unnamed')])
+#oral_cultivated <- oral_cultivated[!(oral_cultivated %in% oral_visualized)]
+
+# All genera detected in the mouth
+oral_all <- unique(c(oral_visualized, oral_cultivated))
+
+### Contaminant genera
+#genera that have been identified as contaminants in previous studies in the literature.
+contaminatinggenera <- contam_database %>%
+  group_by(Genus) %>%
+  mutate(numberstudies = length(unique(Reference)))
+contam_df <- as.data.frame(contaminatinggenera)
+
+#genera that have been identified as contaminants in more than one previous study
+contam_multiple <- unique(contaminatinggenera$Genus[contaminatinggenera$numberstudies > 1])
+contam_multiple <- contam_multiple[contam_multiple != "unspecified"]  #68 of these
+
+#genera that have been identified as contaminants in at least one previous study
+contam_one <- unique(contaminatinggenera$Genus[contaminatinggenera$Genus != 'unspecified']) #213 of these
+
+###BJC: Lists of genera w/ short names
+oral_cult <- unique(HOMD$Genus[HOMD$Status %in% c('Named','Unnamed')])
+oral_vis <- unique(oral_database$Genus)
+oral <- unique(c(oral_cult, oral_vis))
+contam <- unique(contam_df$Genus)
+contam2 <- unique(contam_df$Genus[contam_df$numberstudies>1])
+```
+
+## Categorize taxa according to reference databases
+```{r}
+tt <- TAX2 # Working version of TAX2
+tt$Genus <- tt$GenusREC
+### Categorize
+# Oral, if in oral db and not in contam db. 
+# Contaminant, if reported at least twice as a contaminant, and not in oral db.
+# Ambiguous otherwise.
+tt$Group <- "Ambiguous" # Default
+is.oral <- tt$Genus %in% oral & !tt$Genus %in% contam
+tt$Group[is.oral] <- "Oral"
+is.contam <- tt$Genus %in% contam & !tt$Genus %in% oral
+tt$Group[is.contam] <- "Contaminant"
+# Augment with prevalence groups and Abundance column
+tt$Prevalence <- cut(tt$TAXprev, c(0, 2, 5, 10, 9999), labels=c("2", "3-5", "6-10", "11+"))
+tt$Abundance <- tt$TAXsums
+```
+
+## Inspect categories
+```{r}
+table(tt$Group)
+tapply(tt$Abundance, tt$Group, sum)/sum(sum(tt$TAXsums))
+top.genera <- head(names(sort(tapply(tt$Abundance, tt$Genus, sum), decreasing=TRUE)))
+in.both <- top.genera %in% oral & top.genera %in% contam
+names(in.both) <- top.genera
+in.both
+```
+
+A minority of taxa and reads are being unambiguously assigned, but this is the most useful fraction for assessing classification accuracy, and it is still a non-trival number (~150/850 taxa, ~6% of total reads). Fewer reads are being assigned because the abundant genera (e.g. Steptococcus) are expansive, and unsurprisingly show up in both the oral and contaminant databases.
+
+## Plot score distribution on the oral dataset.
+This is Figure 2b, with full histogram for prevalence, frequency and combined methods.
+```{r}
+tt.class <- tt[!is.na(tt$prob.c),] # 775 classified by decontam, aka "All ASVs"
+tt.class.contam <- tt.class[tt.class$Group == "Contaminant",]
+tt.class.oral <- tt.class[tt.class$Group == "Oral",]
+TAXann <- rbind(cbind(tt.class, Score=tt.class$prob.f, Method="Frequency"),
+                cbind(tt.class, Score=tt.class$prob.p, Method="Prevalence"),
+                cbind(tt.class, Score=tt.class$prob.c, Method="Combined"))
+
+TAXann$Method <- factor(TAXann$Method, levels=c('Frequency','Prevalence','Combined'))
+
+#figure 2b
+histo <- ggplot(TAXann, aes(x=Score, fill=Prevalence))
+histo <- histo + geom_histogram() + labs(x = 'decontam Score', y='Number ASVs') + 
+  facet_wrap(~Method, nrow=1) +
+  #http://colorbrewer2.org/#type=sequential&scheme=BuGn&n=4
+  scale_fill_manual(values=prevalencePalette) +
+#  theme(axis.text.x = element_text(colour="grey20",size=10,angle=0,
+#                                    hjust=.5,vjust=.5,face="plain"),
+#        axis.text.y = element_text(colour="grey20",size=10,angle=0,
+#                                   hjust=1,vjust=0,face="plain"),  
+#        axis.title.x = element_text(colour="grey20",size=15,angle=0,
+#                                    hjust=.5,vjust=0,face="plain"),
+#        axis.title.y = element_text(colour="grey20",size=15,angle=90,
+#                                    hjust=.5,vjust=.5,face="plain"),
+#        strip.text.x = element_text(size = 15, angle = 0),
+#        legend.title = element_text(size = 15, angle = 0),
+#        legend.text = element_text(size = 10, angle = 0)) +
+  theme(legend.position = "bottom")
+histo
+###ggsave(file.path(path.out, "Oral_Score_Histogram.pdf"), histo, width=7, height=2.6, units="in", useDingbats=FALSE)
+###ggsave(file.path(path.out, "Oral_Score_Histogram.png"), histo, width=7, height=2.6, units="in")
+```
+
+## Plot score distributions for difference reference categories
+Supplementary figure showing score histograms for genera that are ambiguous by reference classification.
+```{r}
+histo.class <- ggplot(data=TAXann, aes(x=Score, fill=Prevalence)) +
+  geom_histogram() + labs(x = 'decontam Score', y='Number ASVs') + 
+  facet_grid(Group~Method, scales="free_y") +
+  scale_fill_manual(values=prevalencePalette) +
+  theme(legend.position = "bottom")
+histo.class
+
+ggsave(file.path(path.out, "Oral_Score_Histogram_byReferenceClassification.pdf"), histo.class, width=7, height=4.8, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Score_Histogram_byReferenceClassification.png"), histo.class, width=7, height=4.8, units="in")
+```
+
+## Plot score distribution on the oral dataset, weighted by abundance.
+This is the Supplementary Figure with full histogram weighted by abundance for the prevalence, frequency and combined methods. This is the abundance-weighted version of Figure 2.
+```{r}
+histo.wt <- histo + aes(weight=Abundance)
+histo.wt
+histo.wt.log <- histo.wt + scale_y_log10() + 
+                aes(fill=Method) + scale_fill_manual(values=methodPalette)
+# Not a correct histogram if fill specified, as logged values are stacked inappropriately
+histo.wt.log
+###ggsave(file.path(path.out, "Oral_Score_Histogram_Weighted.pdf"), histo.wt, width=7, height=2.6, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Score_Histogram_Weighted_logY.pdf"), histo.wt.log, width=7, height=2.6, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Score_Histogram_Weighted_logY.png"), histo.wt.log, width=7, height=2.6, units="in")
+```
+
+Pub quality figure (w/ Ambiguous in background):
+```{r}
+scat <- ggplot(data=tt[tt$Group != "Ambiguous",], aes(x=prob.f, y=prob.p, color=Group, size=Abundance))
+scat <- scat + scale_colour_manual(values = c("Oral"="blue", "Contaminant"="red", "Ambiguous"="gray80"), name="Reference\nClassification")
+scat <- scat + geom_point(data=tt[tt$Group == "Ambiguous",], alpha=0.3)
+scat <- scat + geom_point(alpha=0.3)
+scat <- scat + labs(x = 'Score (Frequency)', y='Score (Prevalence)') + guides(size=FALSE)
+scat <- scat + facet_grid(~Prevalence)
+scat
+###ggsave(file.path(path.out, "Oral_Scores_Scatter.pdf"), scat, width=10, height=2.8, units="in", useDingbats=FALSE)
+```
+
+Calculate and plot the ROC for each classification method:
+```{r}
+cc <- tt[tt$Group != "Ambiguous",] # Just reference classified taxa
+get.roc <- function(df, score, weight=FALSE, thresh=0.1) {
+  ord <- order(df[,score], na.last=NA)
+  df <- df[ord,]
+  if(weight) {
+    xx <- c(0, cumsum(df$Abundance*(df$Group=="Oral"))/sum(df$Abundance*(df$Group=="Oral")))
+    yy <- c(0, cumsum(df$Abundance*(df$Group=="Contaminant"))/sum(df$Abundance*(df$Group=="Contaminant")))
+  } else {
+    xx <- c(0, cumsum(df$Group=="Oral")/sum(df$Group=="Oral"))
+    yy <- c(0, cumsum(df$Group=="Contaminant")/sum(df$Group=="Contaminant"))
+  }
+  i.thresh <- min(which(df[,score]>thresh))
+  ii <- seq_along(xx) == i.thresh
+  return(data.frame(InverseSpecificity=xx, Sensitivity=yy, Threshold=ii)) 
+  # InverseSpecificity = 1-Specificity
+}
+rocdf <- rbind(cbind(get.roc(cc, "prob.f"), Method="Frequency", Measure="ASVs"),
+               cbind(get.roc(cc, "prob.p"), Method="Prevalence", Measure="ASVs"),
+               cbind(get.roc(cc, "prob.c"), Method="Combined", Measure="ASVs"))
+
+# Abundance weighted
+aroc <- function(df, score, thresh=0.1) {
+  ord <- order(df[,score], na.last=NA)
+  df <- df[ord,]
+  xx <- c(0, cumsum(df$Abundance*(df$Group=="Oral"))/sum(df$Abundance*(df$Group=="Oral")))
+  yy <- c(0, cumsum(df$Abundance*(df$Group=="Contaminant"))/sum(df$Abundance*(df$Group=="Contaminant")))
+  i.thresh <- min(which(df[,score]>thresh))
+  ii <- seq_along(xx) == i.thresh
+  return(data.frame(Specificity=xx, Sensitivity=yy, Threshold=ii)) # Need to fix this, its 1-Specificity right now
+}
+arocdf <- rbind(cbind(get.roc(cc, "prob.f", weight=TRUE), Method="Frequency", Measure="Reads"),
+                cbind(get.roc(cc, "prob.p", weight=TRUE), Method="Prevalence", Measure="Reads"),
+                cbind(get.roc(cc, "prob.c", weight=TRUE), Method="Combined", Measure="Reads"))
+
+proc <- ggplot(data=rbind(rocdf, arocdf), aes(x=InverseSpecificity, y=Sensitivity, color=Method)) + 
+        geom_line() + geom_abline(slope=1,intercept=0,col="black",linetype="dashed") +
+        facet_wrap(~Measure) +
+        scale_x_continuous(breaks=c(0, 0.25, 0.5, 0.75, 1), labels=c(1, 0.75, 0.5, 0.25, 0)) +
+        xlab("Specificity") + # Previous scale converts from 1-Specificity to Specificity
+        geom_point(aes(size=Threshold)) + 
+        scale_color_manual(values=methodPalette) +
+        scale_size_manual(values=c("FALSE"=0, "TRUE"=2)) + guides(size=FALSE)
+proc
+###ggsave(file.path(path.out, "Oral_ROC.pdf"), proc, width=6, height=2.4, units="in", useDingbats=FALSE)
+rocdf[rocdf$Threshold,] # InverseSpecificity here is 1-Specificity
+arocdf[arocdf$Threshold,]
+1-arocdf[arocdf$Threshold,"InverseSpecificity"]
+```
+
+## Investigate the most glaring seeming misclassifications.
+
+The seeming FN in the 11+ group (the red point in the upper right of that panel):
+```{r}
+upright.11 <- tt$prob.f > 0.5 & tt$prob.p > 0.5 & tt$TAXprev > 10; sum(upright.11)
+i.fn.11 <- which(tt$Group %in% "Contaminant" & upright.11)
+tt[i.fn.11,"Genus"] # [1] "Peptococcus"
+```
+
+Peptococcus is a known inhabitant of the human mouth. Just a reference db error.
+
+The seeming FP in the 6-10 group (the blue point in the lower left of that panel, none in 11+):
+```{r}
+lowleft.6 <- tt$prob.f < 0.5 & tt$prob.p < 0.5 & tt$TAXprev >= 6; sum(lowleft.6)
+i.fp.6 <- which(tt$Group %in% "Oral" & lowleft.6)
+tt[i.fp.6,"Genus"] # [1] "Moraxella"    "Enterobacter" "Delftia"     
+```
+
+Mycobacterium certainly colonizes humans, but it also well known as a laboratory contaminant despite not appearing in our contamination database.
+
+## Main Text Figures
+Make combined publication version of Figure 2 (Frequency patterns and score distributions on oral dataset):
+```{r}
+fig2 <- plot_grid(f2a, histo, nrow=2, rel_heights = c(0.8,1), labels = c('a','b')) #export as 5x8" PDF
+fig2
+ggsave(file.path(path.out, "Oral_Fig2.pdf"), fig2, width=7, height=4.2, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Fig2.png"), fig2, width=7, height=4.2, units="in")
+```
+Make combined publication version of Figure 3 (accuracy on the oral dataset):
+```{r}
+fig3 <- plot_grid(scat, proc, nrow=2, rel_heights = c(1,1), labels = c('a','b')) #export as 5x8" PDF
+fig3
+ggsave(file.path(path.out, "Oral_Fig3.pdf"), fig3, width=7, height=3.6, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Fig3.png"), fig3, width=7, height=3.6, units="in")
+```
+
+## Response to Reviewers: Frequency method FP rate
+Evaluate the FP rate of the frequency method under permutation of the concentrations to address reviewer concerns about the pseudo-F-test frequency classification statistic
+```{r, eval=FALSE}
+set.seed(100)
+fperm <- lapply(seq(100), function(i) {
+  MAPperm <- MAP2
+  MAPperm$Sample_or_Control <- MAP2$Sample_or_Control[sample(nrow(MAP2))]
+  MAPperm$quant_reading <- MAP2$quant_reading[sample(nrow(MAP2))]
+  ocf.perm <- isContaminant(as.matrix(OTU2), MAPperm$quant_reading, threshold = 0.1, 
+                            detailed=TRUE, normalize=TRUE, method='frequency')
+  ocf.perm
+})
+# Calculate FP rate at the ASV level
+fp.asv <- Reduce("+", lapply(fperm, function(x) table(x$contaminant)))
+fp.asv
+# FALSE  TRUE 
+# 83970   730 
+fp.asv/sum(fp.asv)
+#       FALSE        TRUE 
+# 0.991381346 0.008618654
+# Calculate FP rate at the Read level
+fp.rd <- sum(sapply(fperm, function(x) sum(x$freq[x$contaminant])))/length(fperm)
+fp.rd
+#       FALSE        TRUE 
+# 0.991381346 0.008618654
+# Get summary statistics of the prevalence of FPs
+permdf <- do.call(rbind, fperm)
+summary(permdf$prev[permdf$contaminant])
+```
+
+A low (sub 1%) false positive rate, almost all of which comes on very low prevalence ASVs.
+
+## Response to Reviewers: Constancy of contaminant concentrations across samples
+Evaluate whether the concentration of contaminants is independent of total quantified DNA, using contaminants identified by the prevalence method (which does not incorporate DNA concentration information).
+```{r}
+##get ASVs classified as contaminants by the prevalence method at the default 0.1 threshold
+contam0.1 <- rownames(ocp)[ocp$p.prev <= 0.1]
+MUC_contam0.1 <- prune_taxa(contam0.1, MUC2)
+
+#look at the 0.1 threshold data
+sample_data(MUC_contam0.1)$sample_sums_contam <- sample_sums(MUC_contam0.1)
+sample_data(MUC_contam0.1)$sample_sums_total <- sample_sums(MUC2)
+sd <- data.frame(sample_data(MUC_contam0.1))
+sd$uL_to_add[sd$uL_to_add < 0 | sd$uL_to_add > 110] <- 110
+
+#total reads/uL vs. quant_reading
+p <- ggplot(sd, aes(x=quant_reading, y=sample_sums_total/uL_to_add, color=Subject))
+p2 <- p + 
+  geom_point(alpha=0.7) + 
+  labs(title='Total reads', y='Total Reads / uL') + guides(shape=FALSE, color=FALSE)
+p2
+
+#contam reads/uL vs. quant_reading
+p <- ggplot(sd, aes(x=quant_reading, y=log10(sample_sums_contam/uL_to_add), color=Subject))
+p3 <- p + 
+  geom_point(alpha=0.7) + 
+  labs(title='Contaminant reads only', y='log10(Contaminant Reads / uL)')
+p3
+
+pconst <- plot_grid(p2,p3, nrow=1, rel_widths = c(1,1.3)) #save as 4x8.5 inch pdf
+pconst
+ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.pdf"), pconst, width=7, height=3.2, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.png"), pconst, width=7, height=3.2, units="in")
+```
+
+```{r}
+sessionInfo()
 ```
