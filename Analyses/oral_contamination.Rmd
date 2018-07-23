@@ -1,9 +1,10 @@
 ---
-title: "Analaysis of Oral Mucosal 16S dataset"
+title: "Analysis of Oral Mucosal 16S dataset"
 author: "Nicole Davis, Benjamin J Callahan"
-date: "7/13/2018"
 output: html_document
 ---
+
+The data analyzed here were generated as part of the larger study reported in "A spatial gradient of bacterial diversity in the human oral cavity shaped by salivary flow", Proctor et al., Nature communications, 2018: https://doi.org/10.1038/s41467-018-02900-1
 
 ## Prepare workspace
 ```{r, warning=FALSE, message=FALSE}
@@ -28,7 +29,7 @@ load(file.path(path.in, "hypo_sa1_0001_DADA2_ps_new.Rdata"))
 ps
 ```
 
-## Retain only some samples for analysis
+## Subset Samples
 There may be differences between DNA extracted in PowerSoil plates vs. tubes. For these analyses, subset to just include plate samples, and remove any barcode replicates ("R04" samples).
 ```{r}
 #remove outlier sample that was added to the DNA pool twice
@@ -52,8 +53,8 @@ MUCprev <- transform_sample_counts(MUC, function(x) ifelse(x>0, 1, 0))
 MUCrelabund <- transform_sample_counts(MUC, function(x) x/sum(x))
 ```
 
-## Extract OTU table and sample metadata as base R data.frames
-```{r, echo=FALSE}
+Extract OTU table and sample metadata as base R data.frames
+```{r}
 #get sample sums: each sample's sequencing depth
 sample_data(MUC)$sample_sums <- sample_sums(MUC)
 MAP <- data.frame(sample_data(MUC))
@@ -69,8 +70,8 @@ rownames(TAXannotate) <- TAXannotate$Id
 TAXannotate <- TAXannotate[taxa_names(MUC),] # subset down to the taxa being analyzed
 ```
 
-## Assign taxonomy by classifying ASVs using the SILVA v128 database
-This could be refactored into the preprocessing Rmd, which used an earlier version of the Silva database that will be replaced.
+## Assign taxonomy using SILVA v128
+The stored Silva assignments used an older version of the database, so we rerun taxonomic assignment using Silva v128 and dada2's `assignTaxonomy` function.
 ```{r}
 # Function to simplify Silva assignments for consistency with genus reporting in literature
 parse_silva_genus <- Vectorize(function(gen) {
@@ -112,7 +113,8 @@ TAXannotate$TAXsums <- taxa_sums(MUC)[TAXannotate$Id] # Add total abundances
 TAXannotate$TAXprev <- taxa_sums(MUCprev)[TAXannotate$Id] # Add prevalences
 ```
 
-## Apply prevalence filter to filter out taxa present in fewer than 2 samples. This is a very lenient filter.
+## Filter Taxa
+Apply prevalence filter to filter out taxa present in fewer than 2 samples. This is a very lenient filter.
 ```{r}
 MUC2 <- filter_taxa(MUC, function(x) sum(x > 0) > 1, TRUE)
 OTU2 <- OTU[,taxa_names(MUC2)]
@@ -120,7 +122,8 @@ TAX2 <- TAXannotate[taxa_names(MUC2),]
 MAP2 <- MAP[sample_names(MUC2),]
 ```
 
-## Plot patterns of taxa showing the inverse and flat frequency patterns in oral taxa (Figure 2a)
+## Plot Frequency Patterns
+Create a plot showing examples of the two types of frequency patterns observed in the data: frequency independent of DNA concentration and inversely proportional to it (Figure 2a)
 ```{r}
 #plot_abundance function for figures (similar to the plot_frequency function in package)
 plot_abundance <- function(ps, taxa_to_plot, conc, taxa_are_rows=TRUE, norm=TRUE, log=TRUE, returndf=FALSE){
@@ -194,7 +197,8 @@ f2a <- f2a + facet_wrap(~taxa_to_plot,nrow=1) +
 f2a
 ```
 
-## Call contaminants using isContaminant
+## Classify contaminants
+Using both the frequency and prevalence methods, and also the combined method that classifies based on a score that is a composite of the frequency and pevalence scores.
 ```{r}
 conc2 <- MAP2$quant_reading # PicoGreen fluroescent intensity
 neg2 <- MAP2$Sample_or_Control == 'Control Sample' # True if a negative control sample
@@ -206,7 +210,7 @@ ocp <- isContaminant(as.matrix(OTU2), neg=neg2, threshold=0.1, detailed=TRUE, no
 occ <- isContaminant(as.matrix(OTU2), conc=conc2, neg=neg2, threshold=0.1, detailed=TRUE, normalize=TRUE, method='combined')
 ```
 
-## Combine scores from each method into a data.frame, and add to TAX2
+Combine scores from each method into a data.frame, and add to TAX2.
 ```{r}
 probcols <- data.frame(row.names=rownames(ocf),prob.f=ocf$p.freq, prob.p=ocp$p.prev, prob.c = occ$p)
 TAX2 <- cbind(TAX2[,colnames(TAXannotate)], probcols[TAX2$Id,])
@@ -216,7 +220,8 @@ table(probcols$prob.f<0.1, probcols$prob.c<0.1)
 
 Solid agreement.
 
-## Load reference database files & organize genera from the reference databases
+## Reference classification
+Reference databases were generated for each genus from the HOMD database, and by literatures search for cultivated oral taxa and reported contaminant genera. Load the reference database files & organize genera from the reference databases.
 ```{r}
 contam_database <- read.csv(file.path(path.in, "contamination_database.csv"))
 oral_database <- read.csv(file.path(path.in, "oral_database.csv"))
@@ -273,7 +278,7 @@ tt$Prevalence <- cut(tt$TAXprev, c(0, 2, 5, 10, 9999), labels=c("2", "3-5", "6-1
 tt$Abundance <- tt$TAXsums
 ```
 
-## Inspect categories
+Inspect categories.
 ```{r}
 table(tt$Group)
 tapply(tt$Abundance, tt$Group, sum)/sum(sum(tt$TAXsums))
@@ -490,23 +495,22 @@ MUC_contam0.1 <- prune_taxa(contam0.1, MUC2)
 sample_data(MUC_contam0.1)$sample_sums_contam <- sample_sums(MUC_contam0.1)
 sample_data(MUC_contam0.1)$sample_sums_total <- sample_sums(MUC2)
 sd <- data.frame(sample_data(MUC_contam0.1))
-sd$uL_to_add[sd$uL_to_add < 0 | sd$uL_to_add > 110] <- 110
+sd$uL_to_add[sd$uL_to_add < 0 | sd$uL_to_add > 110] <- 110 
+#'uL to add' is the volume of each sample that was added to the pooled DNA sample and sequenced. some samples did not have enough DNA to pool, so 110uL of those samples was added.
 
 #total reads/uL vs. quant_reading
 p <- ggplot(sd, aes(x=quant_reading, y=sample_sums_total/uL_to_add, color=Subject))
 p2 <- p + 
   geom_point(alpha=0.7) + 
   labs(title='Total reads', y='Total Reads / uL') + guides(shape=FALSE, color=FALSE)
-p2
 
 #contam reads/uL vs. quant_reading
 p <- ggplot(sd, aes(x=quant_reading, y=log10(sample_sums_contam/uL_to_add), color=Subject))
 p3 <- p + 
   geom_point(alpha=0.7) + 
   labs(title='Contaminant reads only', y='log10(Contaminant Reads / uL)')
-p3
 
-pconst <- plot_grid(p2,p3, nrow=1, rel_widths = c(1,1.3)) #save as 4x8.5 inch pdf
+pconst <- plot_grid(p2,p3, nrow=1, rel_widths = c(1,1.3))
 pconst
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.pdf"), pconst, width=7, height=3.2, units="in", useDingbats=FALSE)
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.png"), pconst, width=7, height=3.2, units="in")
