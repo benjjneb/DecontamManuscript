@@ -1,6 +1,6 @@
 # Reproducible Analyses from the Manuscript Introducing decontam
 
-This repository hosts the reproducible workflow that performed the analyses presented in the manuscript "Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data" by Davis et al. [bioRxiv. 2017](https://www.biorxiv.org/content/early/2017/11/17/221499).
+This repository hosts the reproducible workflow that performed the analyses presented in the manuscript ["Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data" by Davis et al. bioRxiv, 2017](https://www.biorxiv.org/content/early/2017/11/17/221499).
 Rmarkdown documents are hosted in the `Analyses/` directory. The input data is hosted in several subdirectoryies (e.g. `Analyses/LauderPlacenta`).
 You can run these analyses on your own machine by (1) cloning the repository, (2) modifying the paths defined at the start of each Rmd document, (3) installing required libraries, and (4) pressing Run!
 
@@ -13,10 +13,10 @@ These Rmarkdown documents have also been rendered into html format, and can be v
 
 ## Decontam
 
-These analyses were presented in the manuscript introducing the decontam method for identifying and removing contaminants in MGS (marker-gene or metagenomics sequencing) data. The decontam R package is available through GitHub and Bioconductor.
+The decontam R package is available through GitHub and Bioconductor.
 
 * decontam GitHub repository: https://github.com/benjjneb/decontam
 * decontam Bioconductor page: https://www.bioconductor.org/packages/release/bioc/html/decontam.html
 * decontam website: https://benjjneb.github.io/decontam/
 
-The decontam R package is maintained by Benjamin Callahan (benjamin DOT j DOT callahan AT gmail DOT com).
+The decontam R package is maintained by Benjamin Callahan (benjamin DOT j DOT callahan AT gmail DOT com). Twitter: [\@bejcal](https://twitter.com/bejcal)
