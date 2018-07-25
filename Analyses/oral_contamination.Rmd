@@ -21,7 +21,7 @@ path.out <- "~/DecontamManuscript/Analyses/Figures" # CHANGE ME
 
 #color palettes
 cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
-methodPalette <- c(Prevalence="turquoise3", Frequency="orangered1", Combined="darkorchid4")
+methodPalette <- c(Frequency="darkorange2", Prevalence="turquoise3", Combined="darkorchid4")
 prevalencePalette <- c("2" = "#edf8e9", "3-5" = "#bae4b3", "6-10" = "#74c476", "11+" = "#238b45")
 
 #load phyloseq object
@@ -344,7 +344,7 @@ This is the Supplementary Figure with full histogram weighted by abundance for t
 ```{r}
 histo.wt <- histo + aes(weight=Abundance)
 histo.wt
-histo.wt.log <- histo.wt + scale_y_log10() + 
+histo.wt.log <- histo.wt + scale_y_log10(name="Reads") + 
                 aes(fill=Method) + scale_fill_manual(values=methodPalette)
 # Not a correct histogram if fill specified, as logged values are stacked inappropriately
 histo.wt.log
@@ -361,6 +361,9 @@ scat <- scat + geom_point(data=tt[tt$Group == "Ambiguous",], alpha=0.3)
 scat <- scat + geom_point(alpha=0.3)
 scat <- scat + labs(x = 'Score (Frequency)', y='Score (Prevalence)') + guides(size=FALSE)
 scat <- scat + facet_grid(~Prevalence)
+scat <- scat + guides(colour = guide_legend(override.aes = list(alpha = 1)))
+scat <- scat + scale_x_continuous(breaks=c(0,0.25,0.5,0.75,1), labels=c("0", "0.25", "0.5", "0.75", "1"))
+scat <- scat + scale_y_continuous(breaks=c(0,0.25,0.5,0.75,1), labels=c("0", "0.25", "0.5", "0.75", "1"))
 scat
 ###ggsave(file.path(path.out, "Oral_Scores_Scatter.pdf"), scat, width=10, height=2.8, units="in", useDingbats=FALSE)
 ```
@@ -386,6 +389,7 @@ get.roc <- function(df, score, weight=FALSE, thresh=0.1) {
 rocdf <- rbind(cbind(get.roc(cc, "prob.f"), Method="Frequency", Measure="ASVs"),
                cbind(get.roc(cc, "prob.p"), Method="Prevalence", Measure="ASVs"),
                cbind(get.roc(cc, "prob.c"), Method="Combined", Measure="ASVs"))
+rocdf$Method <- factor(rocdf$Method, levels=c("Frequency", "Prevalence", "Combined"))
 
 # Abundance weighted
 aroc <- function(df, score, thresh=0.1) {
@@ -400,6 +404,7 @@ aroc <- function(df, score, thresh=0.1) {
 arocdf <- rbind(cbind(get.roc(cc, "prob.f", weight=TRUE), Method="Frequency", Measure="Reads"),
                 cbind(get.roc(cc, "prob.p", weight=TRUE), Method="Prevalence", Measure="Reads"),
                 cbind(get.roc(cc, "prob.c", weight=TRUE), Method="Combined", Measure="Reads"))
+arocdf$Method <- factor(arocdf$Method, levels=c("Frequency", "Prevalence", "Combined"))
 
 proc <- ggplot(data=rbind(rocdf, arocdf), aes(x=InverseSpecificity, y=Sensitivity, color=Method)) + 
         geom_line() + geom_abline(slope=1,intercept=0,col="black",linetype="dashed") +
@@ -439,14 +444,14 @@ Mycobacterium certainly colonizes humans, but it also well known as a laboratory
 ## Main Text Figures
 Make combined publication version of Figure 2 (Frequency patterns and score distributions on oral dataset):
 ```{r}
-fig2 <- plot_grid(f2a, histo, nrow=2, rel_heights = c(0.8,1), labels = c('a','b')) #export as 5x8" PDF
+fig2 <- plot_grid(f2a, histo, nrow=2, rel_heights = c(0.8,1), labels = c('a','b'))
 fig2
 ggsave(file.path(path.out, "Oral_Fig2.pdf"), fig2, width=7, height=4.2, units="in", useDingbats=FALSE)
 ggsave(file.path(path.out, "Oral_Fig2.png"), fig2, width=7, height=4.2, units="in")
 ```
 Make combined publication version of Figure 3 (accuracy on the oral dataset):
 ```{r}
-fig3 <- plot_grid(scat, proc, nrow=2, rel_heights = c(1,1), labels = c('a','b')) #export as 5x8" PDF
+fig3 <- plot_grid(scat, proc, nrow=2, rel_heights = c(1,1), labels = c('a','b'))
 fig3
 ggsave(file.path(path.out, "Oral_Fig3.pdf"), fig3, width=7, height=3.6, units="in", useDingbats=FALSE)
 ggsave(file.path(path.out, "Oral_Fig3.png"), fig3, width=7, height=3.6, units="in")
@@ -486,6 +491,7 @@ A low (sub 1%) false positive rate, almost all of which comes on very low preval
 
 ## Response to Reviewers: Constancy of contaminant concentrations across samples
 Evaluate whether the concentration of contaminants is independent of total quantified DNA, using contaminants identified by the prevalence method (which does not incorporate DNA concentration information).
+
 ```{r}
 ##get ASVs classified as contaminants by the prevalence method at the default 0.1 threshold
 contam0.1 <- rownames(ocp)[ocp$p.prev <= 0.1]
@@ -495,26 +501,26 @@ MUC_contam0.1 <- prune_taxa(contam0.1, MUC2)
 sample_data(MUC_contam0.1)$sample_sums_contam <- sample_sums(MUC_contam0.1)
 sample_data(MUC_contam0.1)$sample_sums_total <- sample_sums(MUC2)
 sd <- data.frame(sample_data(MUC_contam0.1))
-sd$uL_to_add[sd$uL_to_add < 0 | sd$uL_to_add > 110] <- 110 
-#'uL to add' is the volume of each sample that was added to the pooled DNA sample and sequenced. some samples did not have enough DNA to pool, so 110uL of those samples was added.
+sd$uL_to_add[sd$uL_to_add < 0 | sd$uL_to_add > 110] <- 110 #'uL to add' is the volume of each sample that was added to the pooled DNA sample and sequenced. some samples did not have enough DNA to pool, so 110uL of those samples was added.
 
 #total reads/uL vs. quant_reading
-p <- ggplot(sd, aes(x=quant_reading, y=sample_sums_total/uL_to_add, color=Subject))
+p <- ggplot(sd, aes(x=samp_conc, y=sample_sums_total/uL_to_add, color=Subject))
 p2 <- p + 
   geom_point(alpha=0.7) + 
-  labs(title='Total reads', y='Total Reads / uL') + guides(shape=FALSE, color=FALSE)
+  labs(title='Total reads', x=expression(ng~DNA/mu*L), y=expression(Total~Reads/mu*L)) + guides(shape=FALSE, color=FALSE)
 
 #contam reads/uL vs. quant_reading
-p <- ggplot(sd, aes(x=quant_reading, y=log10(sample_sums_contam/uL_to_add), color=Subject))
+p <- ggplot(sd, aes(x=samp_conc, y=log10(sample_sums_contam/uL_to_add), color=Subject))
 p3 <- p + 
   geom_point(alpha=0.7) + 
-  labs(title='Contaminant reads only', y='log10(Contaminant Reads / uL)')
+  labs(title='Contaminant reads only', x=expression(ng~DNA/mu*L), y= expression(atop(~ Contaminant~Reads/mu*L, ~ '(log10)')))
 
 pconst <- plot_grid(p2,p3, nrow=1, rel_widths = c(1,1.3))
 pconst
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.pdf"), pconst, width=7, height=3.2, units="in", useDingbats=FALSE)
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.png"), pconst, width=7, height=3.2, units="in")
 ```
+
 
 ```{r}
 sessionInfo()
