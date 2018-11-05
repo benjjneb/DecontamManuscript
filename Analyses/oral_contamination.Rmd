@@ -391,16 +391,6 @@ rocdf <- rbind(cbind(get.roc(cc, "prob.f"), Method="Frequency", Measure="ASVs"),
                cbind(get.roc(cc, "prob.c"), Method="Combined", Measure="ASVs"))
 rocdf$Method <- factor(rocdf$Method, levels=c("Frequency", "Prevalence", "Combined"))
 
-# Abundance weighted
-aroc <- function(df, score, thresh=0.1) {
-  ord <- order(df[,score], na.last=NA)
-  df <- df[ord,]
-  xx <- c(0, cumsum(df$Abundance*(df$Group=="Oral"))/sum(df$Abundance*(df$Group=="Oral")))
-  yy <- c(0, cumsum(df$Abundance*(df$Group=="Contaminant"))/sum(df$Abundance*(df$Group=="Contaminant")))
-  i.thresh <- min(which(df[,score]>thresh))
-  ii <- seq_along(xx) == i.thresh
-  return(data.frame(Specificity=xx, Sensitivity=yy, Threshold=ii)) # Need to fix this, its 1-Specificity right now
-}
 arocdf <- rbind(cbind(get.roc(cc, "prob.f", weight=TRUE), Method="Frequency", Measure="Reads"),
                 cbind(get.roc(cc, "prob.p", weight=TRUE), Method="Prevalence", Measure="Reads"),
                 cbind(get.roc(cc, "prob.c", weight=TRUE), Method="Combined", Measure="Reads"))
@@ -419,6 +409,47 @@ proc
 rocdf[rocdf$Threshold,] # InverseSpecificity here is 1-Specificity
 arocdf[arocdf$Threshold,]
 1-arocdf[arocdf$Threshold,"InverseSpecificity"]
+```
+
+TWITTER REQUEST: Calculate and plot the precision-recall curve for each classification method:
+```{r}
+get.pr <- function(df, score, weight=FALSE, thresh=0.1) {
+  ord <- order(df[,score], na.last=NA)
+  df <- df[ord,]
+  if(weight) {
+    tp <- cumsum(df$Abundance*(df$Group=="Contaminant"))
+    fp <- cumsum(df$Abundance*(df$Group=="Oral"))
+    totp <- sum(df$Abundance * (df$Group=="Contaminant"))
+  } else {
+    tp <- cumsum(df$Group=="Contaminant")
+    fp <- cumsum(df$Group=="Oral")
+    totp <- sum(df$Group=="Contaminant")
+  }
+  i.thresh <- min(which(df[,score]>thresh))
+  ii <- seq_along(tp) == i.thresh
+  return(data.frame(Precision=tp/(tp+fp), Recall=tp/totp, Threshold=ii)) 
+}
+prdf <- rbind(cbind(get.pr(cc, "prob.f"), Method="Frequency", Measure="ASVs"),
+              cbind(get.pr(cc, "prob.p"), Method="Prevalence", Measure="ASVs"),
+              cbind(get.pr(cc, "prob.c"), Method="Combined", Measure="ASVs"))
+prdf$Method <- factor(prdf$Method, levels=c("Frequency", "Prevalence", "Combined"))
+
+aprdf <- rbind(cbind(get.pr(cc, "prob.f", weight=TRUE), Method="Frequency", Measure="Reads"),
+               cbind(get.pr(cc, "prob.p", weight=TRUE), Method="Prevalence", Measure="Reads"),
+               cbind(get.pr(cc, "prob.c", weight=TRUE), Method="Combined", Measure="Reads"))
+aprdf$Method <- factor(aprdf$Method, levels=c("Frequency", "Prevalence", "Combined"))
+
+ppr <- ggplot(data=rbind(aprdf), aes(x=Recall, y=Precision, color=Method)) + 
+       geom_line() + 
+       facet_wrap(~Measure) +
+       xlab("Recall") + # Previous scale converts from 1-Specificity to Specificity
+       geom_point(aes(size=Threshold)) + 
+       scale_color_manual(values=methodPalette) +
+       scale_size_manual(values=c("FALSE"=0, "TRUE"=2)) + guides(size=FALSE)
+ppr
+###ggsave(file.path(path.out, "Oral_ROC.pdf"), proc, width=6, height=2.4, units="in", useDingbats=FALSE)
+prdf[prdf$Threshold,] # InverseSpecificity here is 1-Specificity
+aprdf[aprdf$Threshold,]
 ```
 
 ## Investigate the most glaring seeming misclassifications.
