@@ -9,15 +9,15 @@ The data analyzed here were generated as part of the larger study reported in "A
 ## Prepare workspace
 ```{r, warning=FALSE, message=FALSE}
 #load packages
-cran_packages <- c("reshape2", "ggplot2", "vegan", "stringr", "gridExtra", "ape", "RColorBrewer", "dplyr", "knitr","cowplot","openxlsx", "circlize")
+cran_packages <- c("reshape2", "ggplot2", "vegan", "stringr", "gridExtra", "ape", "RColorBrewer", "dplyr", "knitr","cowplot","openxlsx", "circlize", "plotly")
 bioc_packages <- c("phyloseq","decontam","ComplexHeatmap")
 sapply(c(cran_packages, bioc_packages), require, character.only = TRUE)
 
 #settings
 theme_set(theme_bw())
 options(stringsAsFactors = FALSE)
-path.in <- "~/DecontamManuscript/Analyses/OralContamination" # CHANGE ME
-path.out <- "~/DecontamManuscript/Analyses/Figures" # CHANGE ME
+path.in <- "OralContamination/" # CHANGE ME
+path.out <- "Figures/" # CHANGE ME
 
 #color palettes
 cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7","#000000")
@@ -85,11 +85,11 @@ parse_silva_genus <- Vectorize(function(gen) {
   gen
 })
 # Uncomment the following to run w/o the taxtabSilva128.rds file
-#set.seed(100)
-#library(dada2); packageVersion("dada2")
-#t128 <- assignTaxonomy(TAXannotate$Sequence, "~/tax/silva_nr_v128_train_set.fa.gz", multithread=TRUE)
-#t128[,"Genus"] <- parse_silva_genus(t128[,"Genus"])
-#saveRDS(t128, file.path(path.in, "t128.rds"))
+# set.seed(100)
+# library(dada2); packageVersion("dada2")
+# t128 <- assignTaxonomy(TAXannotate$Sequence, "~/tax/silva_nr_v128_train_set.fa.gz", multithread=TRUE)
+# t128[,"Genus"] <- parse_silva_genus(t128[,"Genus"])
+# saveRDS(t128, file.path(path.in, "t128.rds"))
 t128 <- readRDS(file.path(path.in, "taxtabSilva128.rds"))
 TAXannotate[,colnames(t128)] <- t128
 TAXannotate[,"GenusSILVA"] <- t128[,"Genus"]
@@ -477,8 +477,8 @@ Make combined publication version of Figure 2 (Frequency patterns and score dist
 ```{r}
 fig2 <- plot_grid(f2a, histo, nrow=2, rel_heights = c(0.8,1), labels = c('a','b'))
 fig2
-ggsave(file.path(path.out, "Oral_Fig2.pdf"), fig2, width=7, height=4.2, units="in", useDingbats=FALSE)
-ggsave(file.path(path.out, "Oral_Fig2.png"), fig2, width=7, height=4.2, units="in")
+ggsave(file.path(path.out, "Oral_Fig2.pdf"), fig2, width=7.5, height=5, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Fig2.png"), fig2, width=7.5, height=5, units="in")
 ```
 Make combined publication version of Figure 3 (accuracy on the oral dataset):
 ```{r}
@@ -488,7 +488,7 @@ ggsave(file.path(path.out, "Oral_Fig3.pdf"), fig3, width=7, height=3.6, units="i
 ggsave(file.path(path.out, "Oral_Fig3.png"), fig3, width=7, height=3.6, units="in")
 ```
 
-## Response to Reviewers: Frequency method FP rate
+## Further investigation of the frequency method FP rate
 Evaluate the FP rate of the frequency method under permutation of the concentrations to address reviewer concerns about the pseudo-F-test frequency classification statistic
 ```{r, eval=FALSE}
 set.seed(100)
@@ -520,7 +520,7 @@ summary(permdf$prev[permdf$contaminant])
 
 A low (sub 1%) false positive rate, almost all of which comes on very low prevalence ASVs.
 
-## Response to Reviewers: Constancy of contaminant concentrations across samples
+## Constancy of contaminant concentrations across samples
 Evaluate whether the concentration of contaminants is independent of total quantified DNA, using contaminants identified by the prevalence method (which does not incorporate DNA concentration information).
 
 ```{r}
@@ -551,6 +551,63 @@ pconst
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.pdf"), pconst, width=7, height=3.2, units="in", useDingbats=FALSE)
 ggsave(file.path(path.out, "Oral_Contaminant_Concentrations.png"), pconst, width=7, height=3.2, units="in")
 ```
+
+## Add score annotations to the 6 ASVs shown in Figure 2a
+```{r}
+#extract the dataframe from the plot_abundance function
+f2a_df <- plot_abundance(MUC,c('Seq3','Seq53','Seq152','Seq1','Seq12','Seq200'),
+                      "quant_reading",taxa_are_rows=FALSE, returndf = TRUE)
+
+#extract probability scores for the 6 taxa in Fig. 2a
+TAXann_annotations <- TAXann[TAXann$Id %in% c('Seq3','Seq53','Seq152','Seq1','Seq12','Seq200'),c('Id','Score','Method')]
+TAXann_annotations$annot <- rep(paste0(str_sub(TAXann_annotations$Method, 1, 1), ' = ', round(TAXann_annotations$Score, 3)))
+TAXann_annotations$y <- rep(c(-7.25, -8.25, -9.25), each = 6)
+colnames(TAXann_annotations) 
+colnames(TAXann_annotations)[1] <- "taxa_to_plot" #this column name must match the f2a_df column name for facet_wrap to work
+taxon_levels <- c('Seq3','Seq53','Seq152','Seq1','Seq12','Seq200')
+TAXann_annotations$taxa_to_plot <- factor(TAXann_annotations$taxa_to_plot, levels = taxon_levels)
+
+#plot with annotations
+p1 <- ggplot(f2a_df, aes(log(DNA_conc), log(taxon_abundance)), label=taxa_to_plot)
+f2a_annot <- p1 + 
+  geom_point() + 
+  facet_wrap(~taxa_to_plot, nrow=1) + 
+  geom_text(data=TAXann_annotations, aes(x=2, y=y, label=annot, hjust=0), size=2.5) #+
+  #      theme(axis.text.x = element_text(colour="grey20",size=15,angle=0,
+#                                       hjust=.5,vjust=.5,face="plain"),
+#            axis.text.y = element_text(colour="grey20",size=10,angle=0,
+#                                       hjust=1,vjust=0,face="plain"),  
+#            axis.title.x = element_text(colour="grey20",size=15,angle=0,
+#                                        hjust=.5,vjust=0,face="plain"),
+#            axis.title.y = element_text(colour="grey20",size=15,angle=90,
+#                                        hjust=.5,vjust=.5,face="plain"),
+#            strip.text.x = element_text(size = 15, angle = 0),
+#            legend.title = element_text(size = 15, angle = 0),
+#            legend.text = element_text(size = 15, angle = 0)) +
+
+f2a_annot
+
+fig2 <- plot_grid(f2a_annot, histo, nrow=2, rel_heights = c(0.8,1), labels = c('a','b'))
+fig2
+ggsave(file.path(path.out, "Oral_Fig2_annot.pdf"), fig2, width=7.5, height=5, units="in", useDingbats=FALSE)
+ggsave(file.path(path.out, "Oral_Fig2_annot.png"), fig2, width=7.5, height=5, units="in")
+```
+
+
+## Interactive 3D plot of the prevalence, frequency and combined scores
+```{r}
+##plot in 3d
+TAXannotate_prev2 <- TAXann[TAXann$TAXprev > 1,]
+
+p <- plot_ly(TAXannotate_prev2, x = ~prob.f, y = ~prob.p, z = ~prob.c, color= ~TAXprev, text = ~paste0(Id, ': ', Genus, '\nPrev:', TAXprev, ', Abund: ', TAXsums)) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = 'prob.f'),
+                     yaxis = list(title = 'prob.p'),
+                     zaxis = list(title = 'prob.c')))
+
+p
+```
+
 
 
 ```{r}
