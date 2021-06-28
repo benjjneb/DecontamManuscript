@@ -1,6 +1,6 @@
 # Reproducible Analyses from the Manuscript Introducing decontam
 
-This repository hosts the reproducible workflow that performed the analyses presented in the manuscript ["Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data" by Davis et al. bioRxiv, 2017](https://www.biorxiv.org/content/early/2017/11/17/221499).
+This repository hosts the reproducible workflow that performed the analyses presented in the manuscript ["Simple statistical identification and removal of contaminant sequences in marker-gene and metagenomics data" by Davis et al. Microbiome, 2018](https://doi.org/10.1186/s40168-018-0605-2).
 Rmarkdown documents are hosted in the `Analyses/` directory. The input data is hosted in several subdirectoryies (e.g. `Analyses/LauderPlacenta`).
 You can run these analyses on your own machine by (1) cloning the repository, (2) modifying the paths defined at the start of each Rmd document, (3) installing required libraries, and (4) pressing Run!
 
